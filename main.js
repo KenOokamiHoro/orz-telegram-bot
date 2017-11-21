@@ -3,7 +3,7 @@
 // Total hours wasted here -> 12
 // ^ Do Not Remove This!
 
-var version = "`PROJECT AKARIN VERSION 20160307`";
+var version = "`PROJECT AKARIN VERSION 20171109`";
 
 'use strict';
 
@@ -128,8 +128,16 @@ function format_name(id, first_name, last_name) {
     return full_name_1;
 }
 
+function estimateLength(text){
+    var match = encodeURIComponent(text).match(/%[a-f0-9]{2}/gi);
+    if(match)
+           return match.length;
+    else
+           return text.length;
+}
+
 function check_ascii_nickname(nickname) {
-    return !(/[^\x00-\x7F]/g.test(nickname))
+    return !(/[^\x30-\x7F]/g.test(nickname))
 }
 
 function format_newline(text, user, target, type) {
@@ -141,9 +149,9 @@ function format_newline(text, user, target, type) {
 
     var arr = text.split('\n');
     if (arr.length > config.irc_line_count_limit ||
-        arr.some(function (line) {
-            return line.length > config.irc_message_length_limit;
-        })) {
+        arr.some(function (line){
+            return estimateLength(line) > config.irc_message_length_limit;
+        })){
 
         if (config.irc_long_message_paste_enabled) {
             console.log(printf('User [%1] send a long message', user));
@@ -160,7 +168,7 @@ function format_newline(text, user, target, type) {
             return null;
         } else {
             arr.map(function (line) {
-                return line.slice(0, config.irc_message_length_limit);
+                return line.slice(0, config.irc_message_length_limit/3);
             });
             if (arr.length > config.irc_line_count_limit) {
                 arr = arr.slice(0, config.irc_line_count_limit);
@@ -273,20 +281,30 @@ function sendimg(fileid, msg, type) {
     tg.sendChatAction(msg.chat.id, 'upload_photo');
     tg.getFileLink(fileid).then(function (ret) {
         var url = ret;
-        pvimcn.imgvim(url, function (err, ret) {
-            console.log(ret);
-            var trimmed = ret.trim();
-            if (trimmed.endsWith("webp")) {
-                trimmed = trimmed.slice(0, trimmed.length - "webp".length);
-                trimmed += "png";
-            }
-            var user = format_name(msg.from.id, msg.from.first_name, msg.from.last_name);
-            if (msg.caption) {
-                irc_c.say(config.irc_channel, printf("[%1] %2: %3 Saying: %4", user, type, trimmed, msg.caption));
-            } else {
-                irc_c.say(config.irc_channel, printf("[%1] %2: %3", user, type, trimmed));
-            }
-        });
+        var trimmed = ret.trim();
+        if (trimmed.endsWith("webp")){
+            pvimcn.imgwebp(url, function(err,ret){
+                console.log(ret);
+                if(err){return;} // do nothing on http error
+                var user = format_name(msg.from.id, msg.from.first_name, msg.from.last_name);
+                if (msg.caption){
+                    irc_c.say(config.irc_channel, printf("[%1] %2: %3 Saying: %4", user, type, ret.trim(), msg.caption));
+                }else{
+                    irc_c.say(config.irc_channel, printf("[%1] %2: %3 (-lisa)", user, type, ret.trim()));
+                }
+            });
+        }else{
+            pvimcn.imgvim(url, function(err,ret){
+                console.log(ret);
+                if(err){return;} // do nothing on http error
+                var user = format_name(msg.from.id, msg.from.first_name, msg.from.last_name);
+                if (msg.caption){
+                    irc_c.say(config.irc_channel, printf("[%1] %2: %3 Saying: %4", user, type, ret.trim(), msg.caption));
+                }else{
+                    irc_c.say(config.irc_channel, printf("[%1] %2: %3", user, type, ret.trim()));
+                }
+            });
+        }
     });
 }
 
@@ -329,10 +347,10 @@ tg.on('message', function (msg) {
             } else {
                 var header = "Hello, " + username + ".\n";
             }
-            message = "Your default nick name is " + username +
-                ",which it contains non-ascii chars and it may be hard to input in some IRC clients.\n" +
-                "Please consider choosing a suitable which easy to enter in most of cases.\n" +
-                "Use /nick to set your nick name :-)";
+            message = "Your current nickname is \"" + username +
+                "\", which contains non-ascii chars and it may be hard to input in some IRC clients.\n" +
+                "Please choose a suitable which easy to enter in most of cases.\n" +
+                "Use \"/nick <nickname>\" to set your nickname :-)";
             tg.sendMessage(msg.chat.id, header + message);
         }
     } else if (config.irc_participant_enabled && msg.left_chat_participant && enabled) {
@@ -476,8 +494,9 @@ tg.on('message', function (msg) {
                 var full_name = last_name ?
                     first_name + ' ' + last_name :
                     first_name;
+                var oldnick = nickmap.getNick(msg.from.id);
                 nickmap.setNick(msg.from.id, nick);
-                var notifymsg = printf("User \"%1\" changed nick to \"%2\"", full_name, nick);
+                var notifymsg = printf("User \"%1\" with nick \"%2\" changed nick to \"%3\"", full_name, oldnick, nick);
                 tg.sendMessage(
                     msg.chat.id,
                     notifymsg
